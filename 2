@@ -1,0 +1,798 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Shield, Cloud, Leaf, HeartHandshake, ChevronRight, RotateCcw, Sparkles, Scissors, Building } from 'lucide-react';
+
+type Phase = 'ready' | 'cutting' | 'journey' | 'decade1' | 'decade2' | 'decade3' | 'climax' | 'celebration';
+
+interface RibbonSegment {
+  x: number;
+  y: number;
+  cut: boolean;
+  velocity: { x: number; y: number };
+}
+
+export default function App() {
+  const [phase, setPhase] = useState<Phase>('ready');
+  const [journeyProgress, setJourneyProgress] = useState(0);
+  const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number; color: string; vx: number; vy: number; life: number; size: number }>>([]);
+  const [confetti, setConfetti] = useState<Array<{ id: number; x: number; y: number; color: string; vx: number; vy: number; rotation: number; size: number }>>([]);
+  const [currentDecadeData, setCurrentDecadeData] = useState<{ year: number; milestones: string[]; color: string } | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<number>(0);
+
+  // Ribbon physics state
+  const [ribbonSegments, setRibbonSegments] = useState<RibbonSegment[]>([]);
+  const [scissorPos, setScissorPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [ribbonCutProgress, setRibbonCutProgress] = useState(0);
+  const ribbonRef = useRef<HTMLDivElement>(null);
+  const physicsRef = useRef<{ segments: RibbonSegment[]; animationId: number | null }>({ segments: [], animationId: null });
+
+  const zones = [
+    { id: 'security', label: 'SECURITY', sublabel: 'Vertrouwen', color: '#e30613', icon: <Shield className="w-6 h-6" /> },
+    { id: 'cloud', label: 'CLOUD', sublabel: 'Innovatie', color: '#00d2ff', icon: <Cloud className="w-6 h-6" /> },
+    { id: 'sustainability', label: 'SUSTAINABILITY', sublabel: 'Duurzaamheid', color: '#10ff70', icon: <Leaf className="w-6 h-6" /> },
+    { id: 'support', label: 'SUPPORT', sublabel: 'Ontzorging', color: '#ffaa00', icon: <HeartHandshake className="w-6 h-6" /> },
+  ];
+
+  // Updated with real Mackaay data
+  const decades: Array<{ year: number; milestones: string[]; color: string }> = [
+    {
+      year: 1993,
+      milestones: ['KvK inschrijving 5 mei', 'Eerste hardware installaties', 'Lokale netwerken & tape back-ups'],
+      color: '#e30613'
+    },
+    {
+      year: 2006,
+      milestones: ['Boslaan 29 Hoofddorp', 'Breedbandinternet opkomst', 'Proactief systeembeheer'],
+      color: '#00d2ff'
+    },
+    {
+      year: 2016,
+      milestones: ['ISO 27001 certificering', 'Cloud & Security focus', '500+ tevreden klanten'],
+      color: '#10ff70'
+    },
+  ];
+
+  // Initialize ribbon segments
+  useEffect(() => {
+    const segmentCount = 50;
+    const segments: RibbonSegment[] = [];
+    for (let i = 0; i < segmentCount; i++) {
+      segments.push({
+        x: i / (segmentCount - 1),
+        y: 0.5,
+        cut: false,
+        velocity: { x: 0, y: 0 },
+      });
+    }
+    setRibbonSegments(segments);
+    physicsRef.current.segments = segments;
+  }, []);
+
+  // Physics simulation for fallen ribbon
+  useEffect(() => {
+    if (phase !== 'cutting' || ribbonCutProgress < 95) return;
+
+    const gravity = 0.5;
+    const damping = 0.98;
+
+    const simulate = () => {
+      const segments = physicsRef.current.segments;
+      const cutIndex = Math.floor(segments.length * (ribbonCutProgress / 100));
+
+      segments.forEach((seg, i) => {
+        if (seg.cut) {
+          seg.velocity.y += gravity;
+          seg.velocity.x *= damping;
+          seg.velocity.y *= damping;
+          seg.x += seg.velocity.x * 0.01;
+          seg.y += seg.velocity.y * 0.01;
+
+          // Left side falls left, right side falls right
+          if (i < cutIndex) {
+            seg.velocity.x -= 0.3;
+            seg.velocity.y += 0.1;
+          } else {
+            seg.velocity.x += 0.3;
+            seg.velocity.y += 0.1;
+          }
+        }
+      });
+
+      setRibbonSegments([...segments]);
+      physicsRef.current.animationId = requestAnimationFrame(simulate);
+    };
+
+    simulate();
+
+    return () => {
+      if (physicsRef.current.animationId) {
+        cancelAnimationFrame(physicsRef.current.animationId);
+      }
+    };
+  }, [phase, ribbonCutProgress]);
+
+  // Spawn particles
+  const spawnParticles = useCallback((x: number, y: number, color: string, count: number = 15) => {
+    const newParticles = Array.from({ length: count }, (_, i) => ({
+      id: Date.now() + i,
+      x,
+      y,
+      color,
+      vx: (Math.random() - 0.5) * 12,
+      vy: (Math.random() - 0.5) * 12 - 5,
+      life: 1,
+      size: Math.random() * 6 + 2,
+    }));
+    setParticles(prev => [...prev, ...newParticles]);
+  }, []);
+
+  // Spawn confetti
+  const spawnConfetti = useCallback(() => {
+    const colors = ['#e30613', '#00d2ff', '#10ff70', '#ffaa00', '#ffffff'];
+    const newConfetti = Array.from({ length: 100 }, (_, i) => ({
+      id: Date.now() + i,
+      x: Math.random() * window.innerWidth,
+      y: -20,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      vx: (Math.random() - 0.5) * 4,
+      vy: Math.random() * 3 + 2,
+      rotation: Math.random() * 360,
+      size: Math.random() * 10 + 5,
+    }));
+    setConfetti(newConfetti);
+  }, []);
+
+  // Canvas animation
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const animate = () => {
+      if (!ctx) return;
+
+      ctx.fillStyle = 'rgba(2, 4, 10, 0.2)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Render particles
+      setParticles(prev => {
+        return prev
+          .map(p => ({
+            ...p,
+            x: p.x + p.vx,
+            y: p.y + p.vy,
+            life: p.life - 0.02,
+            vx: p.vx * 0.98,
+            vy: p.vy * 0.98 + 0.2,
+          }))
+          .filter(p => p.life > 0);
+      });
+
+      particles.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = p.color;
+        ctx.fill();
+      });
+
+      // Render confetti
+      setConfetti(prev => {
+        return prev
+          .map(c => ({
+            ...c,
+            x: c.x + c.vx,
+            y: c.y + c.vy,
+            rotation: c.rotation + 5,
+            vy: c.vy + 0.1,
+          }))
+          .filter(c => c.y < canvas.height + 20);
+      });
+
+      confetti.forEach(c => {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate((c.rotation * Math.PI) / 180);
+        ctx.fillStyle = c.color;
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = c.color;
+        ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 1.5);
+        ctx.restore();
+      });
+
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [particles, confetti]);
+
+  // Ribbon cutting handlers
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (phase !== 'ready') return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setIsDragging(true);
+    setScissorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setPhase('cutting');
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging || phase !== 'cutting') return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    setScissorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+
+    const ribbonRect = ribbonRef.current?.getBoundingClientRect();
+    if (ribbonRect) {
+      const ribbonLeft = ((ribbonRect.left - rect.left) / rect.width) * 100;
+      const ribbonRight = ((ribbonRect.right - rect.left) / rect.width) * 100;
+      const ribbonWidth = ribbonRight - ribbonLeft;
+
+      if (x >= ribbonLeft && x <= ribbonRight) {
+        const progress = ((x - ribbonLeft) / ribbonWidth) * 100;
+        setRibbonCutProgress(prev => Math.max(prev, Math.min(progress, 100)));
+
+        // Spawn particles at cut point
+        spawnParticles(
+          e.clientX - rect.left,
+          ribbonRect.top - rect.top + ribbonRect.height / 2,
+          '#e30613',
+          5
+        );
+
+        // Mark segments as cut
+        const segmentIndex = Math.floor((progress / 100) * ribbonSegments.length);
+        setRibbonSegments(prev => {
+          const updated = [...prev];
+          for (let i = 0; i < segmentIndex && i < updated.length; i++) {
+            if (!updated[i].cut) {
+              updated[i] = {
+                ...updated[i],
+                cut: true,
+                velocity: {
+                  x: (Math.random() - 0.5) * 5,
+                  y: Math.random() * 3,
+                }
+              };
+            }
+          }
+          return updated;
+        });
+
+        if (progress >= 95) {
+          setIsDragging(false);
+          setTimeout(() => {
+            setPhase('journey');
+            spawnConfetti();
+          }, 500);
+        }
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    setIsDragging(false);
+  };
+
+  // Journey progression
+  useEffect(() => {
+    if (phase !== 'journey') return;
+
+    const interval = setInterval(() => {
+      setJourneyProgress(prev => {
+        if (prev >= 1) {
+          clearInterval(interval);
+          setPhase('decade1');
+          setCurrentDecadeData(decades[0]);
+          return 1;
+        }
+        return prev + 0.008;
+      });
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  // Decade transitions
+  useEffect(() => {
+    if (!phase.startsWith('decade')) return;
+
+    const timer = setTimeout(() => {
+      if (phase === 'decade1') {
+        setPhase('decade2');
+        setCurrentDecadeData(decades[1]);
+      } else if (phase === 'decade2') {
+        setPhase('decade3');
+        setCurrentDecadeData(decades[2]);
+      } else if (phase === 'decade3') {
+        setPhase('climax');
+      }
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [phase]);
+
+  // Climax to celebration
+  useEffect(() => {
+    if (phase !== 'climax') return;
+
+    const timer = setTimeout(() => {
+      setPhase('celebration');
+      spawnConfetti();
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [phase]);
+
+  const resetExperience = () => {
+    setPhase('ready');
+    setJourneyProgress(0);
+    setCurrentDecadeData(null);
+    setRibbonCutProgress(0);
+    setConfetti([]);
+    setParticles([]);
+    setIsDragging(false);
+
+    // Reset ribbon segments
+    const segmentCount = 50;
+    const segments: RibbonSegment[] = [];
+    for (let i = 0; i < segmentCount; i++) {
+      segments.push({
+        x: i / (segmentCount - 1),
+        y: 0.5,
+        cut: false,
+        velocity: { x: 0, y: 0 },
+      });
+    }
+    setRibbonSegments(segments);
+    physicsRef.current.segments = segments;
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      className="fixed inset-0 bg-[#02040a] overflow-hidden select-none cursor-crosshair"
+      style={{ touchAction: 'none' }}
+    >
+      {/* Animated background grid */}
+      <div className="fixed inset-0 opacity-30" style={{
+        backgroundImage: `
+          linear-gradient(rgba(0, 210, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 210, 255, 0.03) 1px, transparent 1px)
+        `,
+        backgroundSize: '60px 60px',
+      }} />
+
+      {/* Floating ambient particles */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-5">
+        {[...Array(15)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full animate-float"
+            style={{
+              width: `${Math.random() * 80 + 30}px`,
+              height: `${Math.random() * 80 + 30}px`,
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              background: `radial-gradient(circle, ${['rgba(227, 6, 19, 0.15)', 'rgba(0, 210, 255, 0.15)', 'rgba(16, 255, 112, 0.1)', 'rgba(255, 170, 0, 0.1)'][i % 4]}, transparent 70%)`,
+              animationDelay: `${Math.random() * 5}s`,
+              animationDuration: `${15 + Math.random() * 10}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Canvas for particles/confetti */}
+      <canvas ref={canvasRef} className="fixed inset-0 z-10 pointer-events-none" />
+
+      {/* READY / CUTTING PHASE - Ribbon */}
+      {(phase === 'ready' || phase === 'cutting') && (
+        <div className="relative z-20 min-h-screen flex flex-col items-center justify-center">
+          {/* Header */}
+          <div className="absolute top-8 left-0 right-0 text-center px-4">
+            <div className="inline-block mb-4">
+              {/* Official Mackaay Logo */}
+              <svg className="w-auto h-16 md:h-20 lg:h-24 mx-auto" style={{ aspectRatio: '219/101' }} width="219" height="101" viewBox="0 0 219 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M67.7454 75.5972C67.7454 81.1389 69.0972 86.2685 78.9028 86.2685H94.25V81.9444H79.1667C73.2083 81.9444 72.1482 80.2824 72.1482 75.5972C72.1482 71.2824 72.8426 69.2453 79.1667 69.2453H94.25V64.9213H78.9028C69.0741 64.9213 67.7454 70.3148 67.7454 75.5972ZM27.6574 64.9213L16.2546 80.9027L4.85185 64.9213H0V86.2685H4.40278V71.7963L14.6806 86.2685H17.8194L28.1019 71.7963V86.2685H32.5046V64.9213H27.6528H27.6574ZM53.1204 64.9213H37.7732V69.2453H52.9028C57.6991 69.2453 59.0787 70.5833 59.4907 72.2361H44.7361C38.8657 72.2361 36.25 74.3935 36.25 79.2268C36.25 85.4722 40.838 86.2731 44.8426 86.2731H64.0093V74.1342C64.0093 67.9398 60.4445 64.9259 53.1204 64.9259V64.9213ZM59.6574 81.9444H45.2454C40.7639 81.9444 40.7639 81.0926 40.7639 79.2222C40.7639 77.6157 40.7639 76.5555 45.3241 76.5555H59.6574V81.9444ZM212.204 64.9213L201.556 76.5555L190.907 64.9213H185.106L199.366 80.5416V86.2685H203.745V80.5416L218.005 64.9213H212.204ZM175.102 64.9213H159.755V69.2453H174.889C179.685 69.2453 181.069 70.5833 181.477 72.2361H166.727C160.852 72.2361 158.236 74.3935 158.236 79.2268C158.236 85.4722 162.829 86.2731 166.833 86.2731H185.995V74.1342C185.995 67.9398 182.435 64.9259 175.107 64.9259L175.102 64.9213ZM181.639 81.9444H167.227C162.745 81.9444 162.745 81.0926 162.745 79.2222C162.745 77.6157 162.745 76.5555 167.31 76.5555H181.639V81.9444ZM127.727 64.9213H121.213L103.731 80.4722V64.9213H99.3287V86.2685H103.708L112.222 78.6944L121.903 86.2685H129.028L115.56 75.7916L127.731 64.9213H127.727ZM144.139 64.9213H128.792V69.2453H143.926C148.722 69.2453 150.107 70.5833 150.509 72.2361H135.759C129.889 72.2361 127.273 74.3935 127.273 79.2268C127.273 85.4722 131.866 86.2731 135.866 86.2731H155.028V74.1342C155.028 67.9398 151.463 64.9259 144.139 64.9259V64.9213ZM150.676 81.9444H136.264C131.782 81.9444 131.782 81.0926 131.782 79.2222C131.782 77.6157 131.782 76.5555 136.347 76.5555H150.681V81.9444H150.676Z" fill="#ED1B34" />
+                <g filter="url(#filter0_d_957_2673)">
+                  <path d="M134.338 28.5185C134.338 43.5555 122.148 55.7453 107.111 55.7453C92.0741 55.7453 79.8889 43.5555 79.8889 28.5185C79.8889 13.4814 92.0741 1.29163 107.111 1.29163C122.148 1.29163 134.338 13.4814 134.338 28.5185Z" fill="white" />
+                </g>
+                <path d="M130.199 28.5184C130.199 41.2684 119.861 51.6064 107.111 51.6064C94.3611 51.6064 84.0278 41.2684 84.0278 28.5184C84.0278 15.7684 94.3657 5.43048 107.111 5.43048C119.856 5.43048 130.199 15.7684 130.199 28.5184Z" fill="#ED1B34" />
+                <path d="M124.468 22.0324C124.468 30.0139 116.699 36.4861 107.111 36.4861C97.5232 36.4861 89.7593 30.0185 89.7593 22.0324C89.7593 14.0463 97.5278 7.57867 107.111 7.57867C116.694 7.57867 124.468 14.0509 124.468 22.0324Z" fill="url(#paint0_linear_957_2673)" />
+                <path d="M120.194 15.1018L107.111 33.4398L94.0324 15.1018H87.0972V41.9351H93.8843V26.5046L104.847 41.9351H109.375L120.338 26.5046V41.9351H127.13V15.1018H120.194Z" fill="white" />
+                <defs>
+                  <filter id="filter0_d_957_2673" x="78.2222" y="0.523108" width="59.5787" height="59.5834" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+                    <feFlood floodOpacity="0" result="BackgroundImageFix" />
+                    <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+                    <feOffset dx="0.898148" dy="1.7963" />
+                    <feGaussianBlur stdDeviation="1.28241" />
+                    <feColorMatrix type="matrix" values="0 0 0 0 0.137255 0 0 0 0 0.121569 0 0 0 0 0.12549 0 0 0 0.5 0" />
+                    <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_957_2673" />
+                    <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_957_2673" result="shape" />
+                  </filter>
+                  <linearGradient id="paint0_linear_957_2673" x1="107.111" y1="1.52775" x2="107.111" y2="35.1944" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="white" />
+                    <stop offset="1" stopColor="#E31937" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 rounded-full border border-amber-500/30 mb-4">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span className="text-amber-400 font-semibold tracking-wider text-sm">30 JAAR</span>
+              <Sparkles className="w-4 h-4 text-amber-400" />
+            </div>
+
+            <h2 className="text-slate-400 text-lg tracking-wide">Nieuw Pand Opening</h2>
+          </div>
+
+          {/* Instruction */}
+          {phase === 'ready' && (
+            <div className="mt-8 animate-pulse">
+              <div className="flex items-center gap-3 px-6 py-3 bg-white/5 backdrop-blur-sm rounded-full border border-white/10">
+                <Scissors className="w-6 h-6 text-amber-400" />
+                <span className="text-white text-lg">Sleep over het lint om te knippen</span>
+              </div>
+            </div>
+          )}
+
+          {/* Ribbon */}
+          <div className="mt-32 relative" ref={ribbonRef}>
+            {/* Decorative poles */}
+            <div className="absolute -left-6 top-1/2 -translate-y-1/2 w-3 h-48 bg-gradient-to-b from-amber-600 via-amber-500 to-amber-700 rounded-full shadow-xl opacity-80" />
+            <div className="absolute -right-6 top-1/2 -translate-y-1/2 w-3 h-48 bg-gradient-to-b from-amber-600 via-amber-500 to-amber-700 rounded-full shadow-xl opacity-80" />
+
+            {/* The Ribbon */}
+            <div
+              className="relative h-16 w-[80vw] max-w-3xl flex items-center justify-center"
+              style={{ perspective: '1000px' }}
+            >
+              {/* SVG-based ribbon with physics */}
+              <svg
+                className="absolute inset-0 w-full h-full"
+                viewBox="0 0 1000 100"
+                preserveAspectRatio="none"
+              >
+                <defs>
+                  <linearGradient id="ribbonGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#b91c1c" />
+                    <stop offset="50%" stopColor="#dc2626" />
+                    <stop offset="100%" stopColor="#b91c1c" />
+                  </linearGradient>
+                  <linearGradient id="ribbonHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="rgba(255,255,255,0.3)" />
+                    <stop offset="50%" stopColor="transparent" />
+                    <stop offset="100%" stopColor="rgba(0,0,0,0.2)" />
+                  </linearGradient>
+                  <filter id="ribbonShadow">
+                    <feDropShadow dx="0" dy="4" stdDeviation="4" floodOpacity="0.3" />
+                  </filter>
+                </defs>
+
+                {/* Main ribbon shape with physics */}
+                <path
+                  d={`
+                    M 0 50
+                    ${ribbonSegments.map((seg, i) => {
+                      const x = i * (1000 / ribbonSegments.length);
+                      const yOffset = seg.cut ? (seg.y - 0.5) * 500 : 0;
+                      return `L ${x} ${50 + yOffset}`;
+                    }).join(' ')}
+                    L 1000 50
+                    L 1000 100
+                    ${ribbonSegments.slice().reverse().map((seg, i) => {
+                      const x = 1000 - (i * (1000 / ribbonSegments.length));
+                      const yOffset = seg.cut ? (seg.y - 0.5) * 500 : 0;
+                      return `L ${x} ${50 + yOffset + 50}`;
+                    }).join(' ')}
+                    L 0 100
+                    Z
+                  `}
+                  fill="url(#ribbonGrad)"
+                  filter="url(#ribbonShadow)"
+                />
+
+                {/* Highlight overlay */}
+                <rect x="0" y="0" width="1000" height="100" fill="url(#ribbonHighlight)" />
+
+                {/* Pattern lines */}
+                <path
+                  d={`M 0 0 ${Array.from({ length: 50 }, (_, i) => `L ${i * 20} 100 L ${i * 20 + 10} 0`).join(' ')}`}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.05)"
+                  strokeWidth="1"
+                />
+              </svg>
+
+              {/* Cutting indicator */}
+              {phase === 'cutting' && (
+                <div
+                  className="absolute top-0 bottom-0 w-1 bg-yellow-300 shadow-lg"
+                  style={{
+                    left: `${Math.min(ribbonCutProgress, 95)}%`,
+                    boxShadow: '0 0 20px rgba(255, 255, 0, 0.8)'
+                  }}
+                />
+              )}
+
+              {/* Center ornament */}
+              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 transition-all duration-300 ${ribbonCutProgress > 45 ? 'scale-110 opacity-0' : ''}`}>
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 flex items-center justify-center shadow-2xl border-2 border-amber-300">
+                  <span className="text-lg font-bold text-amber-900">30</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            {phase === 'cutting' && (
+              <div className="mt-8 flex items-center justify-center gap-4">
+                <div className="w-48">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-red-400 text-sm font-mono">KNIPPEN</span>
+                    <span className="text-white text-sm font-mono">{Math.round(ribbonCutProgress)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-red-500 to-amber-500 transition-all duration-100"
+                      style={{ width: `${ribbonCutProgress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Scissor cursor */}
+          {phase === 'cutting' && isDragging && (
+            <div
+              className="fixed pointer-events-none z-50"
+              style={{
+                left: scissorPos.x,
+                top: scissorPos.y,
+                transform: 'translate(-50%, -50%) scale(-1, 1)'
+              }}
+            >
+              <div className="relative">
+                <Scissors className="w-12 h-12 text-amber-400 drop-shadow-lg" style={{ transform: `rotate(${ribbonCutProgress * 3.6}deg)` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Bottom info */}
+          <div className="absolute bottom-8 left-0 right-0 text-center">
+            <div className="flex items-center justify-center gap-6 text-slate-500 text-sm">
+              <span>Lakenblekerstraat 21-A4, Aalsmeer</span>
+              <span className="text-amber-600">|</span>
+              <span>Mei 2026</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* JOURNEY PHASE */}
+      {phase === 'journey' && (
+        <div className="fixed inset-0 flex items-center justify-center z-20 animate-fadeIn">
+          <div className="text-center px-8">
+            <div className="text-6xl md:text-8xl font-black mb-4" style={{ fontFamily: 'Orbitron, sans-serif' }}>
+              <span
+                className="bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 bg-clip-text text-transparent"
+                style={{ fontSize: `${60 + journeyProgress * 40}px` }}
+              >
+                {Math.floor(journeyProgress * 33) + 1993}
+              </span>
+            </div>
+            <p className="text-xl text-slate-400 tracking-widest mb-8">JAAR MACKAAY</p>
+
+            <div className="w-64 mx-auto mb-8">
+              <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-red-500 via-cyan-500 to-amber-500"
+                  style={{ width: `${journeyProgress * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Core values appearing */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
+              {zones.map((zone, i) => (
+                <div
+                  key={zone.id}
+                  className="p-4 rounded-xl border transition-all opacity-0"
+                  style={{
+                    background: `rgba(4, 8, 20, 0.6)`,
+                    borderColor: journeyProgress > (i + 1) * 0.25 ? zone.color : 'transparent',
+                    opacity: journeyProgress > (i + 1) * 0.25 ? 1 : 0,
+                    transition: 'all 0.5s ease',
+                  }}
+                >
+                  <div style={{ color: zone.color }} className="mb-2 flex justify-center">{zone.icon}</div>
+                  <h3 className="text-sm font-bold tracking-wider text-white">{zone.label}</h3>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DECADE PHASES */}
+      {phase.startsWith('decade') && currentDecadeData && (
+        <div className="fixed inset-0 flex items-center justify-center z-20 animate-fadeIn">
+          <div className="text-center px-8 max-w-3xl">
+            <div
+              className="text-7xl md:text-8xl font-black mb-10"
+              style={{
+                color: currentDecadeData.color,
+                fontFamily: 'Orbitron, sans-serif',
+                textShadow: `0 0 60px ${currentDecadeData.color}40`
+              }}
+            >
+              {currentDecadeData.year}
+            </div>
+
+            <div className="space-y-5">
+              {currentDecadeData.milestones.map((milestone, i) => (
+                <div
+                  key={i}
+                  className="text-xl md:text-2xl text-slate-300 animate-slideUp"
+                  style={{ animationDelay: `${i * 0.4}s` }}
+                >
+                  <ChevronRight className="inline w-6 h-6 mr-3" style={{ color: currentDecadeData.color }} />
+                  {milestone}
+                </div>
+              ))}
+            </div>
+
+            {/* Progress dots */}
+            <div className="mt-16 flex justify-center gap-3">
+              {decades.map((decade, i) => (
+                <div
+                  key={i}
+                  className={`w-3 h-3 rounded-full transition-all ${
+                    phase === `decade${i + 1}` ? 'scale-150' : ''
+                  }`}
+                  style={{
+                    background: phase === `decade${i + 1}` ? decade.color : 'rgba(255,255,255,0.2)',
+                    boxShadow: phase === `decade${i + 1}` ? `0 0 20px ${decade.color}` : 'none'
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLIMAX PHASE */}
+      {phase === 'climax' && (
+        <div className="fixed inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="text-center px-8">
+            <div className="text-[120px] md:text-[180px] font-black animate-pulse leading-none" style={{ fontFamily: 'Orbitron, sans-serif' }}>
+              <span className="bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
+                30
+              </span>
+            </div>
+            <h2 className="text-3xl md:text-5xl font-bold text-white mb-6 tracking-wider mt-4">
+              MACKAAY ICT SERVICES
+            </h2>
+            <div className="flex items-center justify-center gap-3 text-xl text-amber-400">
+              <Building className="w-6 h-6" />
+              <span>Nieuw Pand Aalsmeer</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CELEBRATION PHASE */}
+      {phase === 'celebration' && (
+        <div className="fixed inset-0 flex flex-col items-center justify-center z-30 animate-fadeIn">
+          <div className="text-center px-8 max-w-4xl">
+            {/* Logo */}
+            <div className="mb-8">
+              <svg className="w-auto h-20 md:h-28 mx-auto" style={{ aspectRatio: '219/101' }} width="219" height="101" viewBox="0 0 219 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M67.7454 75.5972C67.7454 81.1389 69.0972 86.2685 78.9028 86.2685H94.25V81.9444H79.1667C73.2083 81.9444 72.1482 80.2824 72.1482 75.5972C72.1482 71.2824 72.8426 69.2453 79.1667 69.2453H94.25V64.9213H78.9028C69.0741 64.9213 67.7454 70.3148 67.7454 75.5972ZM27.6574 64.9213L16.2546 80.9027L4.85185 64.9213H0V86.2685H4.40278V71.7963L14.6806 86.2685H17.8194L28.1019 71.7963V86.2685H32.5046V64.9213H27.6528H27.6574ZM53.1204 64.9213H37.7732V69.2453H52.9028C57.6991 69.2453 59.0787 70.5833 59.4907 72.2361H44.7361C38.8657 72.2361 36.25 74.3935 36.25 79.2268C36.25 85.4722 40.838 86.2731 44.8426 86.2731H64.0093V74.1342C64.0093 67.9398 60.4445 64.9259 53.1204 64.9259V64.9213ZM59.6574 81.9444H45.2454C40.7639 81.9444 40.7639 81.0926 40.7639 79.2222C40.7639 77.6157 40.7639 76.5555 45.3241 76.5555H59.6574V81.9444ZM212.204 64.9213L201.556 76.5555L190.907 64.9213H185.106L199.366 80.5416V86.2685H203.745V80.5416L218.005 64.9213H212.204ZM175.102 64.9213H159.755V69.2453H174.889C179.685 69.2453 181.069 70.5833 181.477 72.2361H166.727C160.852 72.2361 158.236 74.3935 158.236 79.2268C158.236 85.4722 162.829 86.2731 166.833 86.2731H185.995V74.1342C185.995 67.9398 182.435 64.9259 175.107 64.9259L175.102 64.9213ZM181.639 81.9444H167.227C162.745 81.9444 162.745 81.0926 162.745 79.2222C162.745 77.6157 162.745 76.5555 167.31 76.5555H181.639V81.9444ZM127.727 64.9213H121.213L103.731 80.4722V64.9213H99.3287V86.2685H103.708L112.222 78.6944L121.903 86.2685H129.028L115.56 75.7916L127.731 64.9213H127.727ZM144.139 64.9213H128.792V69.2453H143.926C148.722 69.2453 150.107 70.5833 150.509 72.2361H135.759C129.889 72.2361 127.273 74.3935 127.273 79.2268C127.273 85.4722 131.866 86.2731 135.866 86.2731H155.028V74.1342C155.028 67.9398 151.463 64.9259 144.139 64.9259V64.9213ZM150.676 81.9444H136.264C131.782 81.9444 131.782 81.0926 131.782 79.2222C131.782 77.6157 131.782 76.5555 136.347 76.5555H150.681V81.9444H150.676Z" fill="#ED1B34" />
+                <g filter="url(#filter0_d_1)">
+                  <path d="M134.338 28.5185C134.338 43.5555 122.148 55.7453 107.111 55.7453C92.0741 55.7453 79.8889 43.5555 79.8889 28.5185C79.8889 13.4814 92.0741 1.29163 107.111 1.29163C122.148 1.29163 134.338 13.4814 134.338 28.5185Z" fill="white" />
+                </g>
+                <path d="M130.199 28.5184C130.199 41.2684 119.861 51.6064 107.111 51.6064C94.3611 51.6064 84.0278 41.2684 84.0278 28.5184C84.0278 15.7684 94.3657 5.43048 107.111 5.43048C119.856 5.43048 130.199 15.7684 130.199 28.5184Z" fill="#ED1B34" />
+                <path d="M124.468 22.0324C124.468 30.0139 116.699 36.4861 107.111 36.4861C97.5232 36.4861 89.7593 30.0185 89.7593 22.0324C89.7593 14.0463 97.5278 7.57867 107.111 7.57867C116.694 7.57867 124.468 14.0509 124.468 22.0324Z" fill="url(#paint0_linear_1)" />
+                <path d="M120.194 15.1018L107.111 33.4398L94.0324 15.1018H87.0972V41.9351H93.8843V26.5046L104.847 41.9351H109.375L120.338 26.5046V41.9351H127.13V15.1018H120.194Z" fill="white" />
+                <defs>
+                  <filter id="filter0_d_1" x="78.2222" y="0.523108" width="59.5787" height="59.5834" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+                    <feFlood floodOpacity="0" result="BackgroundImageFix" />
+                    <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+                    <feOffset dx="0.898148" dy="1.7963" />
+                    <feGaussianBlur stdDeviation="1.28241" />
+                    <feColorMatrix type="matrix" values="0 0 0 0 0.137255 0 0 0 0 0.121569 0 0 0 0 0.12549 0 0 0 0.5 0" />
+                    <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1" />
+                    <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1" result="shape" />
+                  </filter>
+                  <linearGradient id="paint0_linear_1" x1="107.111" y1="1.52775" x2="107.111" y2="35.1944" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="white" />
+                    <stop offset="1" stopColor="#E31937" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+
+            <h1 className="text-4xl md:text-6xl font-black mb-2 tracking-wider text-white" style={{ fontFamily: 'Orbitron, sans-serif' }}>
+              NIEUW PAND GEOPEND
+            </h1>
+
+            <p className="text-xl text-amber-400 mb-8">Lakenblekerstraat 21-A4, Aalsmeer</p>
+
+            {/* Core values grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 max-w-3xl mx-auto">
+              {zones.map(zone => (
+                <div
+                  key={zone.id}
+                  className="p-5 rounded-xl border transition-all hover:scale-105"
+                  style={{
+                    background: 'rgba(4, 8, 20, 0.6)',
+                    borderColor: `${zone.color}40`,
+                  }}
+                >
+                  <div style={{ color: zone.color }} className="mb-2 flex justify-center">{zone.icon}</div>
+                  <h3 className="text-sm font-bold tracking-wider text-white mb-1">{zone.label}</h3>
+                  <p className="text-xs text-slate-500">{zone.sublabel}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Stats */}
+            <div className="flex flex-wrap justify-center gap-8 mb-10">
+              <div className="px-6 py-3 bg-white/5 rounded-lg border border-white/10">
+                <div className="text-2xl font-bold text-amber-400">30+</div>
+                <div className="text-xs text-slate-500 tracking-wider">JAAR ERVARING</div>
+              </div>
+              <div className="px-6 py-3 bg-white/5 rounded-lg border border-white/10">
+                <div className="text-2xl font-bold text-cyan-400">500+</div>
+                <div className="text-xs text-slate-500 tracking-wider">KLANTEN</div>
+              </div>
+              <div className="px-6 py-3 bg-white/5 rounded-lg border border-white/10">
+                <div className="text-2xl font-bold text-green-400">ISO 27001</div>
+                <div className="text-xs text-slate-500 tracking-wider">GECERTIFICEERD</div>
+              </div>
+            </div>
+
+            {/* Reset button */}
+            <button
+              onClick={resetExperience}
+              className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl border border-white/20 bg-white/5 text-white hover:bg-white/10 transition-all"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span className="text-sm tracking-wider">Opnieuw starten</span>
+            </button>
+          </div>
+
+          {/* Footer */}
+          <div className="absolute bottom-8 left-0 right-0 text-center">
+            <p className="text-slate-500 text-sm">
+              www.mackaay.nl | Sinds 5 mei 1993
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
